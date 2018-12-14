@@ -99,13 +99,13 @@ class AutoTestRover(AutoTest):
 
     # def reset_and_arm(self):
     #     """Reset RC, set to MANUAL and arm."""
-    #     self.mav.wait_heartbeat()
+    #     self.wait_heartbeat()
     #     # ensure all sticks in the middle
     #     self.set_rc_default()
     #     self.mavproxy.send('switch 1\n')
-    #     self.mav.wait_heartbeat()
+    #     self.wait_heartbeat()
     #     self.disarm_vehicle()
-    #     self.mav.wait_heartbeat()
+    #     self.wait_heartbeat()
     #     self.arm_vehicle()
     #
 
@@ -120,14 +120,14 @@ class AutoTestRover(AutoTest):
     #     self.progress("Test mission %s" % filename)
     #     num_wp = self.load_mission(filename)
     #     self.mavproxy.send('wp set 1\n')
-    #     self.mav.wait_heartbeat()
+    #     self.wait_heartbeat()
     #     self.mavproxy.send('switch 4\n')  # auto mode
     #     self.wait_mode('AUTO')
     #     ret = self.wait_waypoint(0, num_wp-1, max_dist=5, timeout=500)
     #
     #     if ret:
     #         self.mavproxy.expect("Mission Complete")
-    #     self.mav.wait_heartbeat()
+    #     self.wait_heartbeat()
     #     self.wait_mode('HOLD')
     #     self.progress("test: MISSION COMPLETE: passed=%s" % ret)
     #     return ret
@@ -148,9 +148,11 @@ class AutoTestRover(AutoTest):
 
             self.clear_wp()
 
-            # use LEARNING Mode
             self.mavproxy.send('switch 5\n')
             self.wait_mode('MANUAL')
+
+            self.wait_ready_to_arm()
+            self.arm_vehicle()
 
             # first aim north
             self.progress("\nTurn right towards north")
@@ -205,7 +207,10 @@ class AutoTestRover(AutoTest):
         except Exception as e:
             self.progress("Caught exception: %s" % str(e))
             ex = e
+
+        self.disarm_vehicle()
         self.context_pop()
+
         if ex:
             raise ex
 
@@ -267,7 +272,7 @@ class AutoTestRover(AutoTest):
     #     self.mavproxy.send('rc 3 1500\n')
     #     self.mavproxy.expect('APM: Failsafe ended')
     #     self.mavproxy.send('switch 2\n')  # manual mode
-    #     self.mav.wait_heartbeat()
+    #     self.wait_heartbeat()
     #     self.wait_mode('MANUAL')
     #
     #     if success:
@@ -360,11 +365,14 @@ class AutoTestRover(AutoTest):
         """Drive a mission from a file."""
         self.progress("Driving mission %s" % filename)
         self.load_mission(filename)
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
         self.mavproxy.send('switch 4\n')  # auto mode
         self.set_rc(3, 1500)
         self.wait_mode('AUTO')
         self.wait_waypoint(1, 4, max_dist=5)
         self.wait_mode('HOLD', timeout=300)
+        self.disarm_vehicle()
         self.progress("Mission OK")
 
     def do_get_banner(self):
@@ -392,8 +400,7 @@ class AutoTestRover(AutoTest):
         self.set_parameter('CRUISE_SPEED', speed*1.2)
         # at time of writing, the vehicle is only capable of 10m/s/s accel
         self.set_parameter('ATC_ACCEL_MAX', 15)
-        self.mavproxy.send("mode STEERING\n")
-        self.wait_mode('STEERING')
+        self.change_mode("STEERING")
         self.set_rc(3, 2000)
         self.wait_groundspeed(15, 100)
         initial = self.mav.location()
@@ -426,6 +433,8 @@ class AutoTestRover(AutoTest):
         self.set_parameter('CRUISE_SPEED', 15)
         self.set_parameter('ATC_BRAKE', 0)
 
+        self.arm_vehicle()
+
         distance_without_brakes = self.drive_brake_get_stopping_distance(15)
 
         # brakes on:
@@ -437,6 +446,7 @@ class AutoTestRover(AutoTest):
 
         delta = distance_without_brakes - distance_with_brakes
         if delta < distance_without_brakes * 0.05:  # 5% isn't asking for much
+            self.disarm_vehicle()
             raise NotAchievedException("""
 Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 """ %
@@ -444,11 +454,16 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
                                         distance_without_brakes,
                                         delta))
 
+        self.disarm_vehicle()
+
         self.progress(
             "Brakes work (with=%0.2fm without=%0.2fm delta=%0.2fm)" %
             (distance_with_brakes, distance_without_brakes, delta))
 
     def drive_rtl_mission(self):
+        self.wait_ready_to_arm()
+        self.arm_vehicle()
+
         mission_filepath = os.path.join("ArduRover-Missions", "rtl.txt")
         self.load_mission(mission_filepath)
         self.mavproxy.send('switch 4\n')  # auto mode
@@ -483,7 +498,9 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
                 (home_distance, home_distance_max))
         self.mavproxy.send('switch 6\n')
         self.wait_mode('MANUAL')
+        self.disarm_vehicle()
         self.progress("RTL Mission OK")
+
 
     def wait_distance_home_gt(self, distance, timeout=60):
         home_distance = None
@@ -512,17 +529,14 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             self.arm_vehicle()
             # first make sure we can breach the fence:
             self.set_rc(10, 1000)
-            self.mavproxy.send("mode acro\n")
-            self.wait_mode("ACRO")
+            self.change_mode("ACRO")
             self.set_rc(3, 1550)
             self.wait_distance_home_gt(25)
-            self.mavproxy.send("mode RTL\n")
-            self.wait_mode("RTL")
+            self.change_mode("RTL")
             self.mavproxy.expect("APM: Reached destination")
             # now enable avoidance and make sure we can't:
             self.set_rc(10, 2000)
-            self.mavproxy.send("mode acro\n")
-            self.wait_mode("ACRO")
+            self.change_mode("ACRO")
             self.wait_groundspeed(0, 0.7, timeout=60)
             # watch for speed zero
             self.wait_groundspeed(0, 0.2, timeout=120)
@@ -734,8 +748,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         try:
             self.load_mission("rover-camera-mission.txt")
             self.wait_ready_to_arm()
-            self.mavproxy.send('mode auto\n')
-            self.wait_mode('AUTO')
+            self.change_mode("AUTO")
             self.wait_ready_to_arm()
             self.arm_vehicle()
             prev_cf = None
@@ -775,6 +788,68 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         if ex is not None:
             raise ex
 
+    def test_do_set_mode_via_command_long(self):
+        self.do_set_mode_via_command_long("HOLD")
+        self.do_set_mode_via_command_long("MANUAL")
+
+    def test_mavproxy_do_set_mode_via_command_long(self):
+        self.mavproxy_do_set_mode_via_command_long("HOLD")
+        self.mavproxy_do_set_mode_via_command_long("MANUAL")
+
+    def test_sysid_enforce(self):
+        '''Run the same arming code with correct then incorrect SYSID'''
+        self.context_push()
+        ex = None
+        try:
+            # if set_parameter is ever changed to not use MAVProxy
+            # this test is going to break horribly.  Sorry.
+            self.set_parameter("SYSID_MYGCS", 255) # assume MAVProxy does this!
+            self.set_parameter("SYSID_ENFORCE", 1) # assume MAVProxy does this!
+
+            self.change_mode('MANUAL')
+
+            self.progress("make sure I can arm ATM")
+            self.wait_ready_to_arm()
+            self.arm_vehicle(timeout=5)
+            self.disarm_vehicle()
+
+            # temporarily set a different system ID than MAVProxy:
+            self.progress("Attempting to arm vehicle myself")
+            old_srcSystem = self.mav.mav.srcSystem
+            try:
+                self.mav.mav.srcSystem = 243
+                self.arm_vehicle(timeout=5)
+                self.disarm_vehicle()
+                success = False
+            except NotAchievedException as e:
+                success = True
+                pass
+            self.mav.srcSystem = old_srcSystem
+            if not success:
+                raise NotAchievedException(
+                    "Managed to arm with SYSID_ENFORCE set")
+
+            self.progress("Attempting to arm vehicle from vehicle component")
+            old_srcSystem = self.mav.mav.srcSystem
+            comp_arm_exception = None
+            try:
+                self.mav.mav.srcSystem = 1
+                self.arm_vehicle(timeout=5)
+                self.disarm_vehicle()
+            except Exception as e:
+                comp_arm_exception = e
+                pass
+            self.mav.srcSystem = old_srcSystem
+            if comp_arm_exception is not None:
+                raise comp_arm_exception
+
+        except Exception as e:
+            self.progress("Exception caught")
+            ex = e
+        self.context_pop()
+        if ex is not None:
+            raise ex
+
     def autotest(self):
         """Autotest APMrover2 in SITL."""
         self.check_test_syntax(test_file=os.path.realpath(__file__))
@@ -786,7 +861,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
         try:
             self.progress("Waiting for a heartbeat with mavlink protocol %s" %
                           self.mav.WIRE_PROTOCOL_VERSION)
-            self.mav.wait_heartbeat()
+            self.wait_heartbeat()
             self.progress("Setting up RC parameters")
             self.set_rc_default()
             self.set_rc(8, 1800)
@@ -813,8 +888,6 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             self.run_test("Set modes via auxswitches",
                           self.test_setting_modes_via_auxswitches)
 
-            self.arm_vehicle()
-
             self.run_test("Drive an RTL Mission", self.drive_rtl_mission)
 
             self.run_test("Learn/Drive Square with Ch7 option",
@@ -826,19 +899,16 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             # disabled due to frequent failures in travis. This test needs re-writing
             # self.run_test("Drive Brake", self.drive_brake)
 
-            self.run_test("Disarm Vehicle", self.disarm_vehicle)
-
             self.run_test("Get Banner", self.do_get_banner)
 
             self.run_test("Get Capabilities",
                           self.do_get_autopilot_capabilities)
 
             self.run_test("Set mode via MAV_COMMAND_DO_SET_MODE",
-                          lambda: self.do_set_mode_via_command_long("HOLD"))
-            self.mavproxy.send('switch 6\n')  # Manual mode
-            self.wait_mode('MANUAL')
+                          self.test_do_set_mode_via_command_long)
+
             self.run_test("Set mode via MAV_COMMAND_DO_SET_MODE with MAVProxy",
-                          lambda: self.mavproxy_do_set_mode_via_command_long("HOLD"))
+                          self.test_mavproxy_do_set_mode_via_command_long)
 
             self.run_test("Test ServoRelayEvents",
                           self.test_servorelayevents)
@@ -852,6 +922,11 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 
             self.run_test("Test Camera Mission Items",
                           self.test_camera_mission_items)
+
+            self.run_test("Test MAV_CMD_SET_MESSAGE_INTERVAL",
+                          self.test_set_message_interval)
+
+            self.run_test("SYSID_ENFORCE", self.test_sysid_enforce)
 
             self.run_test("Download logs", lambda:
                           self.log_download(

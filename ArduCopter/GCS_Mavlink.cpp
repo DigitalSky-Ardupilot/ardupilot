@@ -126,7 +126,7 @@ NOINLINE void Copter::send_fence_status(mavlink_channel_t chan)
 #endif
 
 
-NOINLINE void Copter::send_extended_status1(mavlink_channel_t chan)
+NOINLINE void Copter::send_sys_status(mavlink_channel_t chan)
 {
     int16_t battery_current = -1;
     int8_t battery_remaining = -1;
@@ -244,6 +244,10 @@ uint8_t GCS_MAVLINK_Copter::sysid_my_gcs() const
 {
     return copter.g.sysid_my_gcs;
 }
+bool GCS_MAVLINK_Copter::sysid_enforce() const
+{
+    return copter.g2.sysid_enforce;
+}
 
 uint32_t GCS_MAVLINK_Copter::telem_delay() const
 {
@@ -277,9 +281,11 @@ bool GCS_MAVLINK_Copter::try_send_message(enum ap_message id)
         // send extended status only once vehicle has been initialised
         // to avoid unnecessary errors being reported to user
         if (copter.ap.initialised) {
-            CHECK_PAYLOAD_SIZE(SYS_STATUS);
-            copter.send_extended_status1(chan);
-            CHECK_PAYLOAD_SIZE(POWER_STATUS);
+            if (PAYLOAD_SIZE(chan, SYS_STATUS) +
+                PAYLOAD_SIZE(chan, POWER_STATUS) > comm_get_txspace(chan)) {
+                return false;
+            }
+            copter.send_sys_status(chan);
             send_power_status();
         }
         break;
@@ -430,8 +436,12 @@ AP_GROUPEND
 };
 
 static const ap_message STREAM_RAW_SENSORS_msgs[] = {
-    MSG_RAW_IMU1,  // RAW_IMU, SCALED_IMU2, SCALED_IMU3
-    MSG_SCALED_PRESSURE,  // SCALED_PRESSURE, SCALED_PRESSURE2, SCALED_PRESSURE3
+    MSG_RAW_IMU,
+    MSG_SCALED_IMU2,
+    MSG_SCALED_IMU3,
+    MSG_SCALED_PRESSURE,
+    MSG_SCALED_PRESSURE2,
+    MSG_SCALED_PRESSURE3,
     MSG_SENSOR_OFFSETS
 };
 static const ap_message STREAM_EXTENDED_STATUS_msgs[] = {
@@ -482,6 +492,9 @@ static const ap_message STREAM_EXTRA3_msgs[] = {
     MSG_RPM,
     MSG_ESC_TELEMETRY,
 };
+static const ap_message STREAM_PARAMS_msgs[] = {
+    MSG_NEXT_PARAM
+};
 static const ap_message STREAM_ADSB_msgs[] = {
     MSG_ADSB_VEHICLE
 };
@@ -495,6 +508,7 @@ const struct GCS_MAVLINK::stream_entries GCS_MAVLINK::all_stream_entries[] = {
     MAV_STREAM_ENTRY(STREAM_EXTRA2),
     MAV_STREAM_ENTRY(STREAM_EXTRA3),
     MAV_STREAM_ENTRY(STREAM_ADSB),
+    MAV_STREAM_ENTRY(STREAM_PARAMS),
     MAV_STREAM_TERMINATOR // must have this at end of stream_entries
 };
 
@@ -1433,9 +1447,8 @@ void Copter::mavlink_delay_cb()
     }
     if (tnow - last_50hz > 20) {
         last_50hz = tnow;
-        gcs().update();
-        gcs().data_stream_send();
-        gcs().retry_deferred();
+        gcs().update_receive();
+        gcs().update_send();
         notify.update();
     }
     if (tnow - last_5s > 5000) {
@@ -1444,29 +1457,6 @@ void Copter::mavlink_delay_cb()
     }
 
     DataFlash.EnableWrites(true);
-}
-
-/*
-  return true if we will accept this packet. Used to implement SYSID_ENFORCE
- */
-bool GCS_MAVLINK_Copter::accept_packet(const mavlink_status_t &status, mavlink_message_t &msg)
-{
-    if (!copter.g2.sysid_enforce) {
-        return true;
-    }
-    if (msg.msgid == MAVLINK_MSG_ID_RADIO || msg.msgid == MAVLINK_MSG_ID_RADIO_STATUS) {
-        return true;
-    }
-    return (msg.sysid == copter.g.sysid_my_gcs);
-}
-
-AP_Mission *GCS_MAVLINK_Copter::get_mission()
-{
-#if MODE_AUTO_ENABLED == ENABLED
-    return &copter.mode_auto.mission;
-#else
-    return nullptr;
-#endif
 }
 
 AP_AdvancedFailsafe *GCS_MAVLINK_Copter::get_advanced_failsafe() const

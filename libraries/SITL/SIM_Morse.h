@@ -48,8 +48,9 @@ private:
     uint16_t morse_control_port = 60001;
 
     enum {
-        OUTPUT_ROVER,
-        OUTPUT_QUAD
+        OUTPUT_ROVER=1,
+        OUTPUT_QUAD=2,
+        OUTPUT_PWM=3
     } output_type;
 
     bool connect_sockets(void);
@@ -57,10 +58,11 @@ private:
     bool sensors_receive(void);
     void output_rover(const struct sitl_input &input);
     void output_quad(const struct sitl_input &input);
+    void output_pwm(const struct sitl_input &input);
     void report_FPS();
 
     // buffer for parsing pose data in JSON format
-    uint8_t sensor_buffer[2048];
+    uint8_t sensor_buffer[50000];
     uint32_t sensor_buffer_len;
 
     SocketAPM *sensors_sock;
@@ -74,49 +76,61 @@ private:
     double extrapolated_s;
     double average_frame_time_s;
 
-    Vector3f position_offset;
-
     uint64_t socket_frame_counter;
     uint64_t last_socket_frame_counter;
     uint64_t frame_counter;
     double last_frame_count_s;
 
+    enum data_type {
+        DATA_FLOAT,
+        DATA_DOUBLE,
+        DATA_VECTOR3F,
+        DATA_VECTOR3F_ARRAY,
+        DATA_FLOAT_ARRAY,
+    };
+
     struct {
         double timestamp;
         struct {
-            double angular_velocity[3];
-            double linear_acceleration[3];
-            double magnetic_field[3];
+            Vector3f angular_velocity;
+            Vector3f linear_acceleration;
+            Vector3f magnetic_field;
         } imu;
         struct {
-            double x, y, z;
+            float x, y, z;
         } gps;
         struct {
-            double roll, pitch, yaw;
+            float roll, pitch, yaw;
         } pose;
         struct {
-            double world_linear_velocity[3];
+            Vector3f world_linear_velocity;
         } velocity;
+        struct {
+            struct vector3f_array points;
+            struct float_array ranges;
+        } scanner;
     } state, last_state;
 
     // table to aid parsing of JSON sensor data
     struct keytable {
         const char *section;
         const char *key;
-        double *ptr;
-        bool is_vector3;
-    } keytable[11] = {
-        { "", "timestamp", &state.timestamp },
-        { "vehicle.imu", "angular_velocity",    &state.imu.angular_velocity[0], true },
-        { "vehicle.imu", "linear_acceleration", &state.imu.linear_acceleration[0], true },
-        { "vehicle.imu", "magnetic_field",      &state.imu.magnetic_field[0], true },
-        { "vehicle.gps", "x", &state.gps.x },
-        { "vehicle.gps", "y", &state.gps.y },
-        { "vehicle.gps", "z", &state.gps.z },
-        { "vehicle.pose", "roll",  &state.pose.roll },
-        { "vehicle.pose", "pitch", &state.pose.pitch },
-        { "vehicle.pose", "yaw",   &state.pose.yaw },
-        { "vehicle.velocity", "world_linear_velocity", &state.velocity.world_linear_velocity[0], true },
+        void *ptr;
+        enum data_type type;
+    } keytable[13] = {
+        { "", "timestamp", &state.timestamp, DATA_DOUBLE },
+        { ".imu", "angular_velocity",    &state.imu.angular_velocity, DATA_VECTOR3F },
+        { ".imu", "linear_acceleration", &state.imu.linear_acceleration, DATA_VECTOR3F },
+        { ".imu", "magnetic_field",      &state.imu.magnetic_field, DATA_VECTOR3F },
+        { ".gps", "x", &state.gps.x, DATA_FLOAT },
+        { ".gps", "y", &state.gps.y, DATA_FLOAT },
+        { ".gps", "z", &state.gps.z, DATA_FLOAT },
+        { ".pose", "roll",  &state.pose.roll, DATA_FLOAT },
+        { ".pose", "pitch", &state.pose.pitch, DATA_FLOAT },
+        { ".pose", "yaw",   &state.pose.yaw, DATA_FLOAT },
+        { ".velocity", "world_linear_velocity", &state.velocity.world_linear_velocity, DATA_VECTOR3F },
+        { ".scan", "point_list", &state.scanner.points, DATA_VECTOR3F_ARRAY },
+        { ".scan", "range_list", &state.scanner.ranges, DATA_FLOAT_ARRAY },
     };
 };
 

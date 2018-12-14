@@ -107,6 +107,8 @@ class AutoTestCopter(AutoTest):
         self.progress("WAITING FOR PARAMETERS")
         self.mavproxy.expect('Received [0-9]+ parameters')
 
+        self.get_mavlink_connection_going()
+
         self.apply_defaultfile_parameters()
 
         util.expect_setup_callback(self.mavproxy, self.expect_callback)
@@ -115,8 +117,6 @@ class AutoTestCopter(AutoTest):
         self.expect_list_extend([self.sitl, self.mavproxy])
 
         self.progress("Started simulator")
-
-        self.get_mavlink_connection_going()
 
         self.hasInit = True
         self.progress("Ready to start testing!")
@@ -624,7 +624,6 @@ class AutoTestCopter(AutoTest):
         self.wait_mode('LAND')
         self.mavproxy.send('switch 6\n')  # stabilize mode
         self.wait_mode('STABILIZE')
-        self.progress()
         raise AutoTestTimeoutException(
             ("Fence test failed to reach home - "
              "timed out after %u seconds" % timeout))
@@ -761,7 +760,6 @@ class AutoTestCopter(AutoTest):
                 moved_distance = self.get_distance(curr_pos, start_pos)
                 self.progress("Alt: %u  Moved: %.0f" % (alt, moved_distance))
                 if moved_distance > max_distance:
-                    self.progress()
                     raise NotAchievedException(
                         "Moved over %u meters, Failed!" % max_distance)
 
@@ -1089,7 +1087,6 @@ class AutoTestCopter(AutoTest):
                 # near enough for now:
                 return
 
-        self.progress()
         raise NotAchievedException("AUTOTUNE failed (%u seconds)" %
                                    (self.get_sim_time() - tstart))
 
@@ -1125,6 +1122,15 @@ class AutoTestCopter(AutoTest):
 
     # fly_avc_test - fly AVC mission
     def fly_avc_test(self):
+        # Arm
+        self.mavproxy.send('switch 6\n')  # stabilize mode
+        self.wait_mode('STABILIZE')
+        self.wait_ready_to_arm()
+
+        self.arm_vehicle()
+        self.progress("Raising rotor speed")
+        self.set_rc(8, 2000)
+
         # upload mission from file
         self.progress("# Load copter_AVC2013_mission")
         # load the waypoint count
@@ -1153,6 +1159,9 @@ class AutoTestCopter(AutoTest):
         # wait for disarm
         self.mav.motors_disarmed_wait()
         self.progress("MOTORS DISARMED OK")
+
+        self.progress("Lowering rotor speed")
+        self.set_rc(8, 1000)
 
         self.progress("AVC mission completed: passed!")
 
@@ -1286,7 +1295,7 @@ class AutoTestCopter(AutoTest):
 
         self.progress("Waiting for location")
         self.mavproxy.send('switch 6\n')  # stabilize mode
-        self.mav.wait_heartbeat()
+        self.wait_heartbeat()
         self.wait_mode('STABILIZE')
         self.progress("Waiting reading for arm")
         self.wait_ready_to_arm()
@@ -1373,7 +1382,7 @@ class AutoTestCopter(AutoTest):
         self.load_mission("copter_nav_delay.txt")
 
         self.mavproxy.send('mode loiter\n')
-        self.mav.wait_heartbeat()
+        self.wait_heartbeat()
         self.wait_mode('LOITER')
         self.progress("Waiting reading for arm")
         self.wait_ready_to_arm()
@@ -1385,6 +1394,7 @@ class AutoTestCopter(AutoTest):
             self.arm_vehicle()
             self.mavproxy.send('mode auto\n')
             self.wait_mode('AUTO')
+            self.set_parameter("DISARM_DELAY", 0)
             self.set_rc(3, 1600)
             count_start = -1
             count_stop = -1
@@ -1625,7 +1635,7 @@ class AutoTestCopter(AutoTest):
         self.progress("Starting mission")
 
         self.mavproxy.send('mode loiter\n')  # stabilize mode
-        self.mav.wait_heartbeat()
+        self.wait_heartbeat()
         self.wait_mode('LOITER')
         self.progress("Waiting reading for arm")
         self.wait_ready_to_arm()
@@ -1683,7 +1693,7 @@ class AutoTestCopter(AutoTest):
         self.progress("Starting mission")
 
         self.mavproxy.send('mode loiter\n')  # stabilize mode
-        self.mav.wait_heartbeat()
+        self.wait_heartbeat()
         self.wait_mode('LOITER')
         self.progress("Waiting reading for arm")
         self.wait_ready_to_arm()
@@ -1915,7 +1925,7 @@ class AutoTestCopter(AutoTest):
             self.mav.location()
             self.set_rc(3, 1000)
             self.mavproxy.send('switch 6\n')  # stabilize mode
-            self.mav.wait_heartbeat()
+            self.wait_heartbeat()
             self.wait_mode('STABILIZE')
             self.progress("Waiting reading for arm")
             self.wait_ready_to_arm()
@@ -1923,7 +1933,7 @@ class AutoTestCopter(AutoTest):
             self.arm_vehicle()
 
             self.mavproxy.send('switch 4\n')  # auto mode
-            self.mav.wait_heartbeat()
+            self.wait_heartbeat()
             self.wait_mode('AUTO')
 
             self.set_rc(3, 1500)
@@ -2351,7 +2361,7 @@ class AutoTestCopter(AutoTest):
             self.mav.location()
             self.set_rc(3, 1000)
             self.mavproxy.send('switch 6\n')  # stabilize mode
-            self.mav.wait_heartbeat()
+            self.wait_heartbeat()
             self.wait_mode('STABILIZE')
             self.progress("Waiting reading for arm")
             self.wait_ready_to_arm()
@@ -2404,7 +2414,7 @@ class AutoTestCopter(AutoTest):
         try:
             self.progress("Waiting for a heartbeat with mavlink protocol %s"
                           % self.mav.WIRE_PROTOCOL_VERSION)
-            self.mav.wait_heartbeat()
+            self.wait_heartbeat()
             self.progress("Setting up RC parameters")
             self.set_rc_default()
             self.set_rc(3, 1000)
@@ -2433,7 +2443,7 @@ class AutoTestCopter(AutoTest):
             self.homeloc = self.mav.location()
             self.progress("Home location: %s" % self.homeloc)
             self.mavproxy.send('switch 6\n')  # stabilize mode
-            self.mav.wait_heartbeat()
+            self.wait_heartbeat()
             self.wait_mode('STABILIZE')
             self.set_rc(3, 1000)
             self.progress("Waiting reading for arm")
@@ -2651,7 +2661,7 @@ class AutoTestCopter(AutoTest):
         self.fail_list = []
 
         try:
-            self.mav.wait_heartbeat()
+            self.wait_heartbeat()
             self.set_rc_default()
             self.set_rc(3, 1000)
             self.homeloc = self.mav.location()
@@ -2661,17 +2671,10 @@ class AutoTestCopter(AutoTest):
             self.mavproxy.send('switch 6\n')  # stabilize mode
             self.wait_mode('STABILIZE')
             self.wait_ready_to_arm()
+
             self.run_test("Arm features", self.test_arm_feature)
 
-            # Arm
-            self.run_test("Arm motors", self.arm_vehicle)
-            self.progress("Raising rotor speed")
-            self.set_rc(8, 2000)
-
             self.run_test("Fly AVC mission", self.fly_avc_test)
-
-            self.progress("Lowering rotor speed")
-            self.set_rc(8, 1000)
 
             # mission ends with disarm so should be ok to download logs now
             self.run_test("log download",

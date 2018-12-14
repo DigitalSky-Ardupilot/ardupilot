@@ -34,6 +34,7 @@ MAV_MODE GCS_MAVLINK_Plane::base_mode() const
     case QLOITER:
     case QLAND:
     case CRUISE:
+    case QAUTOTUNE:
         _base_mode = MAV_MODE_FLAG_STABILIZE_ENABLED;
         break;
     case AUTO:
@@ -152,7 +153,7 @@ void Plane::send_fence_status(mavlink_channel_t chan)
 #endif
 
 
-void Plane::send_extended_status1(mavlink_channel_t chan)
+void Plane::send_sys_status(mavlink_channel_t chan)
 {
     int16_t battery_current = -1;
     int8_t battery_remaining = -1;
@@ -409,6 +410,10 @@ uint8_t GCS_MAVLINK_Plane::sysid_my_gcs() const
 {
     return plane.g.sysid_my_gcs;
 }
+bool GCS_MAVLINK_Plane::sysid_enforce() const
+{
+    return plane.g2.sysid_enforce;
+}
 
 uint32_t GCS_MAVLINK_Plane::telem_delay() const
 {
@@ -434,9 +439,11 @@ bool GCS_MAVLINK_Plane::try_send_message(enum ap_message id)
     switch (id) {
 
     case MSG_EXTENDED_STATUS1:
-        CHECK_PAYLOAD_SIZE(SYS_STATUS);
-        plane.send_extended_status1(chan);
-        CHECK_PAYLOAD_SIZE2(POWER_STATUS);
+        if (PAYLOAD_SIZE(chan, SYS_STATUS) +
+            PAYLOAD_SIZE(chan, POWER_STATUS) > comm_get_txspace(chan)) {
+            return false;
+        }
+        plane.send_sys_status(chan);
         send_power_status();
         break;
 
@@ -603,8 +610,12 @@ const AP_Param::GroupInfo GCS_MAVLINK::var_info[] = {
 };
 
 static const ap_message STREAM_RAW_SENSORS_msgs[] = {
-    MSG_RAW_IMU1,  // RAW_IMU, SCALED_IMU2, SCALED_IMU3
-    MSG_SCALED_PRESSURE,  // SCALED_PRESSURE, SCALED_PRESSURE2, SCALED_PRESSURE3
+    MSG_RAW_IMU,
+    MSG_SCALED_IMU2,
+    MSG_SCALED_IMU3,
+    MSG_SCALED_PRESSURE,
+    MSG_SCALED_PRESSURE2,
+    MSG_SCALED_PRESSURE3,
     MSG_SENSOR_OFFSETS
 };
 static const ap_message STREAM_EXTENDED_STATUS_msgs[] = {
@@ -661,6 +672,9 @@ static const ap_message STREAM_EXTRA3_msgs[] = {
     MSG_EKF_STATUS_REPORT,
     MSG_VIBRATION,
 };
+static const ap_message STREAM_PARAMS_msgs[] = {
+    MSG_NEXT_PARAM
+};
 static const ap_message STREAM_ADSB_msgs[] = {
     MSG_ADSB_VEHICLE
 };
@@ -674,6 +688,7 @@ const struct GCS_MAVLINK::stream_entries GCS_MAVLINK::all_stream_entries[] = {
     MAV_STREAM_ENTRY(STREAM_EXTRA1),
     MAV_STREAM_ENTRY(STREAM_EXTRA2),
     MAV_STREAM_ENTRY(STREAM_EXTRA3),
+    MAV_STREAM_ENTRY(STREAM_PARAMS),
     MAV_STREAM_ENTRY(STREAM_ADSB),
     MAV_STREAM_TERMINATOR // must have this at end of stream_entries
 };
@@ -1467,8 +1482,8 @@ void Plane::mavlink_delay_cb()
     }
     if (tnow - last_50hz > 20) {
         last_50hz = tnow;
-        gcs().update();
-        gcs().data_stream_send();
+        gcs().update_receive();
+        gcs().update_send();
         notify.update();
     }
     if (tnow - last_5s > 5000) {
@@ -1485,25 +1500,6 @@ void Plane::mavlink_delay_cb()
 void Plane::gcs_send_airspeed_calibration(const Vector3f &vg)
 {
     gcs().send_airspeed_calibration(vg);
-}
-
-/*
-  return true if we will accept this packet. Used to implement SYSID_ENFORCE
- */
-bool GCS_MAVLINK_Plane::accept_packet(const mavlink_status_t &status, mavlink_message_t &msg)
-{
-    if (!plane.g2.sysid_enforce) {
-        return true;
-    }
-    if (msg.msgid == MAVLINK_MSG_ID_RADIO || msg.msgid == MAVLINK_MSG_ID_RADIO_STATUS) {
-        return true;
-    }
-    return (msg.sysid == plane.g.sysid_my_gcs);
-}
-
-AP_Mission *GCS_MAVLINK_Plane::get_mission()
-{
-    return &plane.mission;
 }
 
 void GCS_MAVLINK_Plane::handle_mission_set_current(AP_Mission &mission, mavlink_message_t *msg)
@@ -1550,6 +1546,7 @@ bool GCS_MAVLINK_Plane::set_mode(const uint8_t mode)
     case QLOITER:
     case QLAND:
     case QRTL:
+    case QAUTOTUNE:
         plane.set_mode((enum FlightMode)mode, MODE_REASON_GCS_COMMAND);
         return true;
     }

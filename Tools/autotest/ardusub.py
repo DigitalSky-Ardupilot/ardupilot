@@ -153,6 +153,15 @@ class AutoTestSub(AutoTest):
         if ex is not None:
             raise ex
 
+    def reboot_sitl(self):
+        """Reboot SITL instance and wait it to reconnect."""
+        self.mavproxy.send("reboot\n")
+        self.mavproxy.expect("Initialising APM")
+        # empty mav to avoid getting old timestamps:
+        while self.mav.recv_match(blocking=False):
+            pass
+        self.initialise_after_reboot_sitl()
+
     def autotest(self):
         """Autotest ArduSub in SITL."""
         self.check_test_syntax(test_file=os.path.realpath(__file__))
@@ -163,7 +172,7 @@ class AutoTestSub(AutoTest):
         try:
             self.progress("Waiting for a heartbeat with mavlink protocol %s"
                           % self.mav.WIRE_PROTOCOL_VERSION)
-            self.mav.wait_heartbeat()
+            self.wait_heartbeat()
             self.set_parameter("FS_GCS_ENABLE", 0)
             self.progress("Waiting for GPS fix")
             self.mav.wait_gps_fix()

@@ -9,6 +9,8 @@ const AP_FWVersion AP_FWVersion::fwver
     fw_string: "Dummy GCS"
 };
 
+const struct GCS_MAVLINK::stream_entries GCS_MAVLINK::all_stream_entries[] {};
+
 /*
  *  GCS backend used for many examples and tools
  */
@@ -22,7 +24,6 @@ class GCS_MAVLINK_Dummy : public GCS_MAVLINK
 
 protected:
 
-    AP_Mission *get_mission() override { return nullptr; }
     AP_Rally *get_rally() const override { return nullptr; };
 
     uint8_t sysid_my_gcs() const override { return 1; }

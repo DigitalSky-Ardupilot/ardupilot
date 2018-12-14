@@ -60,9 +60,8 @@ const AP_Scheduler::Task Rover::scheduler_tasks[] = {
     SCHED_TASK(update_mission,         50,    200),
     SCHED_TASK(update_logging1,        10,    200),
     SCHED_TASK(update_logging2,        10,    200),
-    SCHED_TASK_CLASS(GCS,                 (GCS*)&rover._gcs,       retry_deferred,         50,  500),
-    SCHED_TASK_CLASS(GCS,                 (GCS*)&rover._gcs,       update,                 50,  500),
-    SCHED_TASK_CLASS(GCS,                 (GCS*)&rover._gcs,       data_stream_send,       50, 1000),
+    SCHED_TASK_CLASS(GCS,                 (GCS*)&rover._gcs,       update_receive,                    400,    500),
+    SCHED_TASK_CLASS(GCS,                 (GCS*)&rover._gcs,       update_send,                       400,   1000),
     SCHED_TASK_CLASS(RC_Channels,         (RC_Channels*)&rover.g2.rc_channels, read_mode_switch,        7,    200),
     SCHED_TASK_CLASS(RC_Channels,         (RC_Channels*)&rover.g2.rc_channels, read_aux_all,           10,    200),
     SCHED_TASK_CLASS(AP_BattMonitor,      &rover.battery,          read,           10,  300),
@@ -222,11 +221,14 @@ void Rover::update_logging1(void)
     if (should_log(MASK_LOG_THR)) {
         Log_Write_Throttle();
         DataFlash.Log_Write_Beacon(g2.beacon);
-        Log_Write_Proximity();
     }
 
     if (should_log(MASK_LOG_NTUN)) {
         Log_Write_Nav_Tuning();
+    }
+
+    if (should_log(MASK_LOG_RANGEFINDER)) {
+        DataFlash.Log_Write_Proximity(g2.proximity);
     }
 }
 

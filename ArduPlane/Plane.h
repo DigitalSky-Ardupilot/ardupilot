@@ -151,6 +151,7 @@ public:
     friend class ParametersG2;
     friend class AP_Arming_Plane;
     friend class QuadPlane;
+    friend class QAutoTune;
     friend class AP_Tuning_Plane;
     friend class AP_AdvancedFailsafe_Plane;
     friend class AP_Avoidance_Plane;
@@ -800,7 +801,7 @@ private:
     void update_load_factor(void);
     void send_fence_status(mavlink_channel_t chan);
     void update_sensor_status_flags(void);
-    void send_extended_status1(mavlink_channel_t chan);
+    void send_sys_status(mavlink_channel_t chan);
     void send_nav_controller_output(mavlink_channel_t chan);
     void send_servo_out(mavlink_channel_t chan);
     void send_wind(mavlink_channel_t chan);
